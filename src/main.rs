@@ -5,8 +5,10 @@ use log::info;
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
+mod check;
 mod cli;
 mod config;
 mod dns;
@@ -94,7 +96,7 @@ async fn cmd_dns(hostname: &str, include_ipv6: bool) -> Result<()> {
 }
 
 /// Handle the `cxn check` subcommand (default)
-async fn cmd_check(config: &Config, _sequential: bool) -> Result<()> {
+async fn cmd_check(config: &Config, sequential: bool) -> Result<()> {
     if config.hosts.is_empty() {
         println!("{}", "No hosts configured".yellow());
         println!("Add hosts to ~/.config/cxn/cxn.yml or ./cxn.yml to get started.");
@@ -103,51 +105,28 @@ async fn cmd_check(config: &Config, _sequential: bool) -> Result<()> {
 
     println!("Checking {} hosts...\n", config.hosts.len());
 
-    // For now, run checks sequentially (parallel will be added in Phase 5)
-    let timeout = Duration::from_millis(config.timeout_ms);
-    let ping_client = ping::create_client()?;
-    let dns_resolver = dns::create_resolver();
+    // Create shared clients
+    let ping_client = Arc::new(ping::create_client()?);
+    let dns_resolver = Arc::new(dns::create_resolver());
 
+    // Run checks (parallel by default)
+    let parallel = !sequential;
+    let results = check::run_all_checks(config, ping_client, dns_resolver, parallel).await;
+
+    // Display results
     let mut success_count = 0;
+    for result in &results {
+        println!("{} ({})", result.name.cyan(), result.address);
 
-    for host in &config.hosts {
-        println!("{} ({})", host.name.cyan(), host.address);
-
-        let mut host_success = true;
-
-        // DNS check (only if enabled and address is a hostname)
-        if host.should_resolve_dns() {
-            let dns_result = dns::resolve_dns(&dns_resolver, &host.name, &host.address, true).await;
+        if let Some(ref dns_result) = result.dns {
             println!("{}", dns_result.format());
-            if !dns_result.success {
-                host_success = false;
-            }
         }
 
-        // Ping check
-        if host.ping {
-            // Parse or resolve the address
-            let ip_address: Option<IpAddr> = if let Ok(ip) = host.address.parse() {
-                Some(ip)
-            } else {
-                // Need to resolve first
-                let dns_result = dns::resolve_dns(&dns_resolver, &host.name, &host.address, false).await;
-                dns_result.addresses.into_iter().next()
-            };
-
-            if let Some(addr) = ip_address {
-                let ping_result = ping::ping_host(&ping_client, &host.name, addr, timeout, 1).await;
-                println!("{}", ping_result.format());
-                if !ping_result.success {
-                    host_success = false;
-                }
-            } else {
-                println!("  {} ping: could not resolve hostname", "✗".red());
-                host_success = false;
-            }
+        if let Some(ref ping_result) = result.ping {
+            println!("{}", ping_result.format());
         }
 
-        if host_success {
+        if result.is_success() {
             success_count += 1;
         }
 
