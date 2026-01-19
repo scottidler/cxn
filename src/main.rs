@@ -242,7 +242,8 @@ async fn cmd_check_compact(config: &Config, sequential: bool) -> Result<bool> {
         }
     }
 
-    println!("{table}\n");
+    println!("{table}");
+    println!();
     io::stdout().flush().ok();
 
     let hosts_checked = hosts.iter().filter(|h| h.has_checks()).count();
@@ -268,8 +269,8 @@ async fn run_check_with_watch(config: &Config, sequential: bool, watch: Option<u
             loop {
                 let cycle_start = Instant::now();
 
-                // Clear screen (with fallback spacing if clear doesn't work)
-                print!("\n\x1B[2J\x1B[1;1H");
+                // Clear screen and move cursor to top-left
+                print!("\x1B[2J\x1B[1;1H");
                 io::stdout().flush().ok();
 
                 let now = chrono::Local::now();
