@@ -242,7 +242,7 @@ async fn cmd_check_compact(config: &Config, sequential: bool) -> Result<bool> {
         }
     }
 
-    println!("{table}");
+    println!("{table}\n");
     io::stdout().flush().ok();
 
     let hosts_checked = hosts.iter().filter(|h| h.has_checks()).count();
