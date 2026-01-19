@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 mod cli;
 mod config;
+mod dns;
 mod ping;
 
 use cli::Cli;
