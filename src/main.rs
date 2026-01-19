@@ -276,10 +276,12 @@ async fn run_check_with_watch(config: &Config, sequential: bool, watch: Option<u
             }
         }
         Some(seconds) => {
-            // Watch mode
+            // Watch mode - true fixed interval from cycle start
             let interval_duration = Duration::from_secs(seconds);
 
             loop {
+                let cycle_start = Instant::now();
+
                 // Clear screen and show timestamp
                 print!("\x1B[2J\x1B[1;1H");
                 io::stdout().flush().ok();
@@ -295,9 +297,13 @@ async fn run_check_with_watch(config: &Config, sequential: bool, watch: Option<u
                 // Run the compact check
                 let _ = cmd_check_compact(config, sequential).await?;
 
-                // Wait for interval or Ctrl+C
+                // Calculate remaining time in interval
+                let elapsed = cycle_start.elapsed();
+                let remaining = interval_duration.saturating_sub(elapsed);
+
+                // Wait for remaining interval or Ctrl+C
                 tokio::select! {
-                    _ = tokio::time::sleep(interval_duration) => {
+                    _ = tokio::time::sleep(remaining) => {
                         // Continue to next iteration
                     }
                     _ = signal::ctrl_c() => {
