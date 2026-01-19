@@ -188,8 +188,6 @@ async fn cmd_check_compact(config: &Config, sequential: bool) -> Result<bool> {
         return Ok(true);
     }
 
-    let start_time = Instant::now();
-
     // Create shared clients
     let ping_client = Arc::new(ping::create_client()?);
     let dns_resolver = Arc::new(dns::create_resolver());
@@ -250,16 +248,7 @@ async fn cmd_check_compact(config: &Config, sequential: bool) -> Result<bool> {
         }
     }
 
-    // Summary line
-    let elapsed = start_time.elapsed();
     let hosts_checked = hosts.iter().filter(|h| h.has_checks()).count();
-    let status = if success_count == hosts_checked {
-        format!("{}/{} {}", success_count, hosts_checked, "OK".green())
-    } else {
-        format!("{}/{} {}", success_count, hosts_checked, "FAIL".red())
-    };
-    println!("\n{} ({:.1}s)", status, elapsed.as_secs_f64());
-
     Ok(success_count == hosts_checked)
 }
 
