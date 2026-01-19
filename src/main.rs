@@ -3,10 +3,12 @@ use colored::*;
 use eyre::{Context, Result};
 use log::info;
 use std::fs;
+use std::io::{self, Write};
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::signal;
 
 mod check;
 mod cli;
@@ -16,6 +18,22 @@ mod ping;
 
 use cli::{Cli, Commands};
 use config::Config;
+
+/// Resolve watch interval with precedence: CLI > env > config > default
+/// Returns None if watch mode not enabled, Some(interval) otherwise
+fn resolve_watch_interval(cli_value: Option<u64>, config: &Config) -> Option<u64> {
+    match cli_value {
+        None => None, // --watch not specified
+        Some(0) => {
+            // --watch with no value, use config/env
+            let env_val = std::env::var("CXN_WATCH_INTERVAL")
+                .ok()
+                .and_then(|s| s.parse().ok());
+            Some(env_val.unwrap_or(config.watch_interval))
+        }
+        Some(n) => Some(n), // --watch N, use explicit value
+    }
+}
 
 fn setup_logging() -> Result<()> {
     // Create log directory
@@ -96,11 +114,12 @@ async fn cmd_dns(hostname: &str, include_ipv6: bool) -> Result<()> {
 }
 
 /// Handle the `cxn check` subcommand (default)
-async fn cmd_check(config: &Config, sequential: bool) -> Result<()> {
+/// Returns true if all checks passed, false otherwise
+async fn cmd_check(config: &Config, sequential: bool) -> Result<bool> {
     if config.hosts.is_empty() {
         println!("{}", "No hosts configured".yellow());
         println!("Add hosts to ~/.config/cxn/cxn.yml or ./cxn.yml to get started.");
-        return Ok(());
+        return Ok(true);
     }
 
     let start_time = Instant::now();
@@ -145,6 +164,7 @@ async fn cmd_check(config: &Config, sequential: bool) -> Result<()> {
             "OK".green(),
             elapsed.as_secs_f64()
         );
+        Ok(true)
     } else {
         let failed = hosts_checked - success_count;
         println!(
@@ -155,7 +175,64 @@ async fn cmd_check(config: &Config, sequential: bool) -> Result<()> {
             "failed".red(),
             elapsed.as_secs_f64()
         );
-        std::process::exit(1);
+        Ok(false)
+    }
+}
+
+/// Run check command with optional watch mode
+async fn run_check_with_watch(config: &Config, sequential: bool, watch: Option<u64>) -> Result<()> {
+    let interval = resolve_watch_interval(watch, config);
+
+    match interval {
+        None => {
+            // Single run mode
+            let success = cmd_check(config, sequential).await?;
+            if !success {
+                std::process::exit(1);
+            }
+        }
+        Some(seconds) => {
+            // Watch mode
+            println!(
+                "Watch mode: checking every {} seconds (Ctrl+C to stop)\n",
+                seconds
+            );
+
+            let interval_duration = Duration::from_secs(seconds);
+
+            loop {
+                // Clear screen and show timestamp
+                print!("\x1B[2J\x1B[1;1H");
+                io::stdout().flush().ok();
+
+                let now = chrono::Local::now();
+                println!(
+                    "{} [{}]\n",
+                    "Watch mode".cyan().bold(),
+                    now.format("%Y-%m-%d %H:%M:%S")
+                );
+
+                // Run the check
+                let _ = cmd_check(config, sequential).await?;
+
+                println!(
+                    "\n{} (every {}s)",
+                    "Next check in...".dimmed(),
+                    seconds
+                );
+
+                // Wait for interval or Ctrl+C
+                tokio::select! {
+                    _ = tokio::time::sleep(interval_duration) => {
+                        // Continue to next iteration
+                    }
+                    _ = signal::ctrl_c() => {
+                        println!("\n\n{}", "Watch mode stopped.".yellow());
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     Ok(())
@@ -179,15 +256,15 @@ async fn main() -> Result<()> {
         Some(Commands::Dns { hostname, ipv6 }) => {
             cmd_dns(&hostname, ipv6).await?;
         }
-        Some(Commands::Check { sequential }) => {
+        Some(Commands::Check { sequential, watch }) => {
             // Load configuration for check command
             let config = Config::load(cli.config.as_ref()).context("Failed to load configuration")?;
-            cmd_check(&config, sequential).await?;
+            run_check_with_watch(&config, sequential, watch).await?;
         }
         None => {
-            // Default: run check command with parallel execution
+            // Default: run check command with parallel execution (no watch)
             let config = Config::load(cli.config.as_ref()).context("Failed to load configuration")?;
-            cmd_check(&config, false).await?;
+            run_check_with_watch(&config, false, None).await?;
         }
     }
 

@@ -11,6 +11,8 @@ pub struct Config {
     pub timeout_ms: u64,
     /// Number of retry attempts
     pub retry_count: u32,
+    /// Default watch interval in seconds for continuous monitoring
+    pub watch_interval: u64,
     /// List of hosts to check
     pub hosts: Vec<HostConfig>,
 }
@@ -20,6 +22,7 @@ impl Default for Config {
         Self {
             timeout_ms: 1000,
             retry_count: 3,
+            watch_interval: 5,
             hosts: vec![],
         }
     }
@@ -118,6 +121,7 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.timeout_ms, 1000);
         assert_eq!(config.retry_count, 3);
+        assert_eq!(config.watch_interval, 5);
         assert!(config.hosts.is_empty());
     }
 

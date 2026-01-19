@@ -54,5 +54,10 @@ pub enum Commands {
         /// Run checks sequentially instead of in parallel
         #[arg(short, long)]
         sequential: bool,
+
+        /// Watch mode: continuously re-run checks at interval (seconds)
+        /// Uses config/env default if no value given
+        #[arg(short, long, value_name = "SECONDS", num_args = 0..=1, default_missing_value = "0")]
+        watch: Option<u64>,
     },
 }
