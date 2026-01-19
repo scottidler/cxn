@@ -113,7 +113,7 @@ async fn cmd_dns(hostname: &str, include_ipv6: bool) -> Result<()> {
     Ok(())
 }
 
-/// Handle the `cxn check` subcommand (default)
+/// Handle the `cxn check` subcommand (default) - verbose output
 /// Returns true if all checks passed, false otherwise
 async fn cmd_check(config: &Config, sequential: bool) -> Result<bool> {
     let hosts = config.hosts();
@@ -180,6 +180,89 @@ async fn cmd_check(config: &Config, sequential: bool) -> Result<bool> {
     }
 }
 
+/// Handle check in compact table format for watch mode
+async fn cmd_check_compact(config: &Config, sequential: bool) -> Result<bool> {
+    let hosts = config.hosts();
+    if hosts.is_empty() {
+        println!("{}", "No hosts configured".yellow());
+        return Ok(true);
+    }
+
+    let start_time = Instant::now();
+
+    // Create shared clients
+    let ping_client = Arc::new(ping::create_client()?);
+    let dns_resolver = Arc::new(dns::create_resolver());
+
+    // Run checks
+    let parallel = !sequential;
+    let results = check::run_all_checks(config, ping_client, dns_resolver, parallel).await;
+
+    // Calculate column widths
+    let name_width = results.iter().map(|r| r.name.len()).max().unwrap_or(4).max(4);
+
+    // Print header
+    println!(
+        "{:<width$}  {:>8}  {}",
+        "NAME".dimmed(),
+        "PING".dimmed(),
+        "DNS".dimmed(),
+        width = name_width
+    );
+
+    // Print results
+    let mut success_count = 0;
+    for result in &results {
+        let ping_str = match &result.ping {
+            Some(p) if p.success && p.rtt.is_some() => {
+                format!("{:.1}ms", p.rtt.unwrap().as_secs_f64() * 1000.0).green().to_string()
+            }
+            Some(p) if p.success => "ok".green().to_string(),
+            Some(_) => "fail".red().to_string(),
+            None => "-".dimmed().to_string(),
+        };
+
+        let dns_str = match &result.dns {
+            Some(d) if d.success => {
+                let addr = d.addresses.first().map(|a| a.to_string()).unwrap_or_default();
+                format!("{}", addr).green().to_string()
+            }
+            Some(_) => "fail".red().to_string(),
+            None => "-".dimmed().to_string(),
+        };
+
+        let name_colored = if result.is_success() {
+            result.name.as_str().normal()
+        } else {
+            result.name.as_str().red()
+        };
+
+        println!(
+            "{:<width$}  {:>8}  {}",
+            name_colored,
+            ping_str,
+            dns_str,
+            width = name_width
+        );
+
+        if result.is_success() {
+            success_count += 1;
+        }
+    }
+
+    // Summary line
+    let elapsed = start_time.elapsed();
+    let hosts_checked = hosts.iter().filter(|h| h.has_checks()).count();
+    let status = if success_count == hosts_checked {
+        format!("{}/{} {}", success_count, hosts_checked, "OK".green())
+    } else {
+        format!("{}/{} {}", success_count, hosts_checked, "FAIL".red())
+    };
+    println!("\n{} ({:.1}s)", status, elapsed.as_secs_f64());
+
+    Ok(success_count == hosts_checked)
+}
+
 /// Run check command with optional watch mode
 async fn run_check_with_watch(config: &Config, sequential: bool, watch: Option<u64>) -> Result<()> {
     let interval = resolve_watch_interval(watch, config);
@@ -194,11 +277,6 @@ async fn run_check_with_watch(config: &Config, sequential: bool, watch: Option<u
         }
         Some(seconds) => {
             // Watch mode
-            println!(
-                "Watch mode: checking every {} seconds (Ctrl+C to stop)\n",
-                seconds
-            );
-
             let interval_duration = Duration::from_secs(seconds);
 
             loop {
@@ -208,19 +286,14 @@ async fn run_check_with_watch(config: &Config, sequential: bool, watch: Option<u
 
                 let now = chrono::Local::now();
                 println!(
-                    "{} [{}]\n",
-                    "Watch mode".cyan().bold(),
-                    now.format("%Y-%m-%d %H:%M:%S")
-                );
-
-                // Run the check
-                let _ = cmd_check(config, sequential).await?;
-
-                println!(
-                    "\n{} (every {}s)",
-                    "Next check in...".dimmed(),
+                    "{} [{}] (every {}s)\n",
+                    "cxn".cyan().bold(),
+                    now.format("%H:%M:%S"),
                     seconds
                 );
+
+                // Run the compact check
+                let _ = cmd_check_compact(config, sequential).await?;
 
                 // Wait for interval or Ctrl+C
                 tokio::select! {
