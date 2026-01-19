@@ -1,5 +1,6 @@
 use clap::Parser;
 use colored::*;
+use comfy_table::{presets::NOTHING, Cell, CellAlignment, Color, Table};
 use eyre::{Context, Result};
 use log::info;
 use std::fs;
@@ -196,57 +197,52 @@ async fn cmd_check_compact(config: &Config, sequential: bool) -> Result<bool> {
     let parallel = !sequential;
     let results = check::run_all_checks(config, ping_client, dns_resolver, parallel).await;
 
-    // Calculate column widths
-    let name_width = results.iter().map(|r| r.name.len()).max().unwrap_or(4).max(4);
+    // Build table
+    let mut table = Table::new();
+    table.load_preset(NOTHING);
 
-    // Print header
-    println!(
-        "{:<width$}  {:>8}  {}",
-        "NAME".dimmed(),
-        "PING".dimmed(),
-        "DNS".dimmed(),
-        width = name_width
-    );
+    // Header
+    table.set_header(vec![
+        Cell::new("NAME").fg(Color::DarkGrey),
+        Cell::new("PING").fg(Color::DarkGrey).set_alignment(CellAlignment::Right),
+        Cell::new("DNS").fg(Color::DarkGrey),
+    ]);
 
-    // Print results
+    // Results
     let mut success_count = 0;
     for result in &results {
-        let ping_str = match &result.ping {
+        let (ping_text, ping_color) = match &result.ping {
             Some(p) if p.success && p.rtt.is_some() => {
-                format!("{:.1}ms", p.rtt.unwrap().as_secs_f64() * 1000.0).green().to_string()
+                (format!("{:.1}ms", p.rtt.unwrap().as_secs_f64() * 1000.0), Color::Green)
             }
-            Some(p) if p.success => "ok".green().to_string(),
-            Some(_) => "fail".red().to_string(),
-            None => "-".dimmed().to_string(),
+            Some(p) if p.success => ("ok".to_string(), Color::Green),
+            Some(_) => ("fail".to_string(), Color::Red),
+            None => ("-".to_string(), Color::DarkGrey),
         };
 
-        let dns_str = match &result.dns {
+        let (dns_text, dns_color) = match &result.dns {
             Some(d) if d.success => {
                 let addr = d.addresses.first().map(|a| a.to_string()).unwrap_or_default();
-                format!("{}", addr).green().to_string()
+                (addr, Color::Green)
             }
-            Some(_) => "fail".red().to_string(),
-            None => "-".dimmed().to_string(),
+            Some(_) => ("fail".to_string(), Color::Red),
+            None => ("-".to_string(), Color::DarkGrey),
         };
 
-        let name_colored = if result.is_success() {
-            result.name.as_str().normal()
-        } else {
-            result.name.as_str().red()
-        };
+        let name_color = if result.is_success() { Color::Reset } else { Color::Red };
 
-        println!(
-            "{:<width$}  {:>8}  {}",
-            name_colored,
-            ping_str,
-            dns_str,
-            width = name_width
-        );
+        table.add_row(vec![
+            Cell::new(&result.name).fg(name_color),
+            Cell::new(ping_text).fg(ping_color).set_alignment(CellAlignment::Right),
+            Cell::new(dns_text).fg(dns_color),
+        ]);
 
         if result.is_success() {
             success_count += 1;
         }
     }
+
+    println!("{table}");
 
     let hosts_checked = hosts.iter().filter(|h| h.has_checks()).count();
     Ok(success_count == hosts_checked)
