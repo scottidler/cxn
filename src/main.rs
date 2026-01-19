@@ -6,7 +6,7 @@ use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod check;
 mod cli;
@@ -103,6 +103,7 @@ async fn cmd_check(config: &Config, sequential: bool) -> Result<()> {
         return Ok(());
     }
 
+    let start_time = Instant::now();
     println!("Checking {} hosts...\n", config.hosts.len());
 
     // Create shared clients
@@ -134,17 +135,25 @@ async fn cmd_check(config: &Config, sequential: bool) -> Result<()> {
     }
 
     // Summary
+    let elapsed = start_time.elapsed();
     let hosts_checked = config.hosts.iter().filter(|h| h.has_checks()).count();
     if success_count == hosts_checked {
-        println!("Summary: {}/{} hosts {}", success_count, hosts_checked, "OK".green());
+        println!(
+            "Summary: {}/{} hosts {} in {:.1}s",
+            success_count,
+            hosts_checked,
+            "OK".green(),
+            elapsed.as_secs_f64()
+        );
     } else {
         let failed = hosts_checked - success_count;
         println!(
-            "Summary: {}/{} hosts OK, {} {}",
+            "Summary: {}/{} hosts OK, {} {} in {:.1}s",
             success_count,
             hosts_checked,
             failed,
-            "failed".red()
+            "failed".red(),
+            elapsed.as_secs_f64()
         );
         std::process::exit(1);
     }
