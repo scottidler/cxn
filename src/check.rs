@@ -43,7 +43,7 @@ pub async fn run_all_checks(
     dns_resolver: Arc<hickory_resolver::TokioAsyncResolver>,
     parallel: bool,
 ) -> Vec<CheckResult> {
-    let timeout = Duration::from_millis(config.timeout_ms);
+    let timeout = Duration::from_millis(config.timeout);
 
     if parallel {
         run_parallel_checks(config, ping_client, dns_resolver, timeout).await
@@ -62,13 +62,13 @@ async fn run_parallel_checks(
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_CHECKS));
     let mut join_set = JoinSet::new();
 
-    // Store the original order
-    let hosts: Vec<(usize, HostConfig)> = config.hosts.iter().cloned().enumerate().collect();
+    let hosts = config.hosts();
 
-    for (idx, host) in hosts {
+    for (idx, host) in hosts.iter().enumerate() {
         let permit = semaphore.clone().acquire_owned().await.unwrap();
         let ping_client = ping_client.clone();
         let dns_resolver = dns_resolver.clone();
+        let host = host.clone();
 
         join_set.spawn(async move {
             let result = check_host(&host, &ping_client, &dns_resolver, timeout).await;
@@ -78,7 +78,7 @@ async fn run_parallel_checks(
     }
 
     // Collect results and sort by original order
-    let mut results: Vec<(usize, CheckResult)> = Vec::with_capacity(config.hosts.len());
+    let mut results: Vec<(usize, CheckResult)> = Vec::with_capacity(hosts.len());
     while let Some(Ok((idx, result))) = join_set.join_next().await {
         results.push((idx, result));
     }
@@ -93,9 +93,10 @@ async fn run_sequential_checks(
     dns_resolver: Arc<hickory_resolver::TokioAsyncResolver>,
     timeout: Duration,
 ) -> Vec<CheckResult> {
-    let mut results = Vec::with_capacity(config.hosts.len());
+    let hosts = config.hosts();
+    let mut results = Vec::with_capacity(hosts.len());
 
-    for host in &config.hosts {
+    for host in &hosts {
         let result = check_host(host, &ping_client, &dns_resolver, timeout).await;
         results.push(result);
     }

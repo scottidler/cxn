@@ -1,4 +1,5 @@
 use eyre::{Context, Result};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::net::IpAddr;
@@ -8,30 +9,44 @@ use std::path::{Path, PathBuf};
 #[serde(default)]
 pub struct Config {
     /// Timeout for ping/dns operations in milliseconds
-    pub timeout_ms: u64,
+    pub timeout: u64,
     /// Number of retry attempts
-    pub retry_count: u32,
+    pub retries: u32,
     /// Default watch interval in seconds for continuous monitoring
-    pub watch_interval: u64,
-    /// List of hosts to check
-    pub hosts: Vec<HostConfig>,
+    pub interval: u64,
+    /// Map of host name to host configuration
+    hosts: IndexMap<String, HostEntry>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            timeout_ms: 1000,
-            retry_count: 3,
-            watch_interval: 5,
-            hosts: vec![],
+            timeout: 1000,
+            retries: 3,
+            interval: 5,
+            hosts: IndexMap::new(),
         }
     }
 }
 
+impl Config {
+    /// Get hosts as a Vec with names included
+    pub fn hosts(&self) -> Vec<HostConfig> {
+        self.hosts
+            .iter()
+            .map(|(name, entry)| HostConfig {
+                name: name.clone(),
+                address: entry.address.clone(),
+                ping: entry.ping,
+                dns: entry.dns,
+            })
+            .collect()
+    }
+}
+
+/// Host entry in config file (without name, which is the map key)
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct HostConfig {
-    /// Display name for the host
-    pub name: String,
+pub struct HostEntry {
     /// IP address or hostname
     pub address: String,
     /// Whether to perform ping check
@@ -42,22 +57,32 @@ pub struct HostConfig {
     pub dns: bool,
 }
 
+/// Host configuration with name (used internally after loading)
+#[derive(Debug, Clone)]
+pub struct HostConfig {
+    /// Display name for the host
+    pub name: String,
+    /// IP address or hostname
+    pub address: String,
+    /// Whether to perform ping check
+    pub ping: bool,
+    /// Whether to perform DNS resolution (only valid for hostnames, not IPs)
+    pub dns: bool,
+}
+
 impl HostConfig {
     /// Check if the address is an IP address (not a hostname)
-    #[allow(dead_code)] // Used in later phases
     pub fn is_ip_address(&self) -> bool {
         self.address.parse::<IpAddr>().is_ok()
     }
 
     /// Check if this host has any checks enabled
-    #[allow(dead_code)] // Used in later phases
     pub fn has_checks(&self) -> bool {
         self.ping || self.dns
     }
 
     /// Check if DNS resolution should be performed
     /// Returns false if address is already an IP (DNS not needed)
-    #[allow(dead_code)] // Used in later phases
     pub fn should_resolve_dns(&self) -> bool {
         self.dns && !self.is_ip_address()
     }
@@ -119,10 +144,10 @@ mod tests {
     #[test]
     fn test_config_default() {
         let config = Config::default();
-        assert_eq!(config.timeout_ms, 1000);
-        assert_eq!(config.retry_count, 3);
-        assert_eq!(config.watch_interval, 5);
-        assert!(config.hosts.is_empty());
+        assert_eq!(config.timeout, 1000);
+        assert_eq!(config.retries, 3);
+        assert_eq!(config.interval, 5);
+        assert!(config.hosts().is_empty());
     }
 
     #[test]
@@ -177,24 +202,25 @@ mod tests {
     #[test]
     fn test_config_parse_yaml() {
         let yaml = r#"
-timeout_ms: 2000
-retry_count: 5
+timeout: 2000
+retries: 5
 hosts:
-  - name: "Google DNS"
+  Google DNS:
     address: "8.8.8.8"
     ping: true
     dns: false
-  - name: "GitHub"
+  GitHub:
     address: "github.com"
     ping: true
     dns: true
 "#;
         let config: Config = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.timeout_ms, 2000);
-        assert_eq!(config.retry_count, 5);
-        assert_eq!(config.hosts.len(), 2);
-        assert_eq!(config.hosts[0].name, "Google DNS");
-        assert!(config.hosts[0].ping);
-        assert!(!config.hosts[0].dns);
+        assert_eq!(config.timeout, 2000);
+        assert_eq!(config.retries, 5);
+        let hosts = config.hosts();
+        assert_eq!(hosts.len(), 2);
+        assert_eq!(hosts[0].name, "Google DNS");
+        assert!(hosts[0].ping);
+        assert!(!hosts[0].dns);
     }
 }

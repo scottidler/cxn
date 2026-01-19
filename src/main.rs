@@ -29,7 +29,7 @@ fn resolve_watch_interval(cli_value: Option<u64>, config: &Config) -> Option<u64
             let env_val = std::env::var("CXN_WATCH_INTERVAL")
                 .ok()
                 .and_then(|s| s.parse().ok());
-            Some(env_val.unwrap_or(config.watch_interval))
+            Some(env_val.unwrap_or(config.interval))
         }
         Some(n) => Some(n), // --watch N, use explicit value
     }
@@ -116,14 +116,15 @@ async fn cmd_dns(hostname: &str, include_ipv6: bool) -> Result<()> {
 /// Handle the `cxn check` subcommand (default)
 /// Returns true if all checks passed, false otherwise
 async fn cmd_check(config: &Config, sequential: bool) -> Result<bool> {
-    if config.hosts.is_empty() {
+    let hosts = config.hosts();
+    if hosts.is_empty() {
         println!("{}", "No hosts configured".yellow());
         println!("Add hosts to ~/.config/cxn/cxn.yml or ./cxn.yml to get started.");
         return Ok(true);
     }
 
     let start_time = Instant::now();
-    println!("Checking {} hosts...\n", config.hosts.len());
+    println!("Checking {} hosts...\n", hosts.len());
 
     // Create shared clients
     let ping_client = Arc::new(ping::create_client()?);
@@ -155,7 +156,7 @@ async fn cmd_check(config: &Config, sequential: bool) -> Result<bool> {
 
     // Summary
     let elapsed = start_time.elapsed();
-    let hosts_checked = config.hosts.iter().filter(|h| h.has_checks()).count();
+    let hosts_checked = hosts.iter().filter(|h| h.has_checks()).count();
     if success_count == hosts_checked {
         println!(
             "Summary: {}/{} hosts {} in {:.1}s",

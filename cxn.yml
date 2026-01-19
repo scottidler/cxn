@@ -1,26 +1,24 @@
 # cxn.yml - Connection testing configuration
 # Place in ~/.config/cxn/cxn.yml or ./cxn.yml
 
-timeout_ms: 1000
-retry_count: 3
+timeout: 1000
+retries: 3
+interval: 5
 
 hosts:
-  - name: "Google DNS"
+  Google DNS:
     address: "8.8.8.8"
     ping: true
-    dns: false
 
-  - name: "Cloudflare"
+  Cloudflare:
     address: "1.1.1.1"
     ping: true
-    dns: false
 
-  - name: "Google"
+  Google:
     address: "google.com"
     ping: true
     dns: true
 
-  - name: "GitHub"
+  GitHub:
     address: "github.com"
-    ping: false
     dns: true
