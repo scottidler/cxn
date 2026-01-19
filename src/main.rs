@@ -266,12 +266,15 @@ async fn run_check_with_watch(config: &Config, sequential: bool, watch: Option<u
             // Watch mode - true fixed interval from cycle start
             let interval_duration = Duration::from_secs(seconds);
 
+            let mut first = true;
             loop {
                 let cycle_start = Instant::now();
 
-                // Clear screen and move cursor to top-left
-                print!("\x1B[2J\x1B[1;1H");
-                io::stdout().flush().ok();
+                // Separator between iterations (skip on first)
+                if !first {
+                    println!();
+                }
+                first = false;
 
                 let now = chrono::Local::now();
                 println!(
