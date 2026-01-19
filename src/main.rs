@@ -268,8 +268,8 @@ async fn run_check_with_watch(config: &Config, sequential: bool, watch: Option<u
             loop {
                 let cycle_start = Instant::now();
 
-                // Clear screen and show timestamp
-                print!("\x1B[2J\x1B[1;1H");
+                // Clear screen (with fallback spacing if clear doesn't work)
+                print!("\n\x1B[2J\x1B[1;1H");
                 io::stdout().flush().ok();
 
                 let now = chrono::Local::now();
