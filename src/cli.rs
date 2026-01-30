@@ -60,4 +60,18 @@ pub enum Commands {
         #[arg(short, long, value_name = "SECONDS", num_args = 0..=1, default_missing_value = "0")]
         watch: Option<u64>,
     },
+
+    /// Launch interactive TUI network health monitor
+    Monitor(MonitorArgs),
+}
+
+#[derive(clap::Args)]
+pub struct MonitorArgs {
+    /// Override check interval in seconds
+    #[arg(short, long)]
+    pub interval: Option<u64>,
+
+    /// Override history length (samples per host for sparklines)
+    #[arg(short = 'H', long)]
+    pub history: Option<usize>,
 }

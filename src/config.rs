@@ -14,6 +14,8 @@ pub struct Config {
     pub retries: u32,
     /// Default watch interval in seconds for continuous monitoring
     pub interval: u64,
+    /// Number of samples to keep per host for sparklines in monitor mode
+    pub history: usize,
     /// Map of host name to host configuration
     hosts: IndexMap<String, HostEntry>,
 }
@@ -24,6 +26,7 @@ impl Default for Config {
             timeout: 1000,
             retries: 3,
             interval: 5,
+            history: 60,
             hosts: IndexMap::new(),
         }
     }

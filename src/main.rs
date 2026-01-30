@@ -1,6 +1,6 @@
 use clap::Parser;
 use colored::*;
-use comfy_table::{presets::NOTHING, Cell, CellAlignment, Color, Table};
+use comfy_table::{Cell, CellAlignment, Color, Table, presets::NOTHING};
 use eyre::{Context, Result};
 use log::info;
 use std::fs;
@@ -15,6 +15,7 @@ mod check;
 mod cli;
 mod config;
 mod dns;
+mod monitor;
 mod ping;
 
 use cli::{Cli, Commands};
@@ -27,9 +28,7 @@ fn resolve_watch_interval(cli_value: Option<u64>, config: &Config) -> Option<u64
         None => None, // --watch not specified
         Some(0) => {
             // --watch with no value, use config/env
-            let env_val = std::env::var("CXN_WATCH_INTERVAL")
-                .ok()
-                .and_then(|s| s.parse().ok());
+            let env_val = std::env::var("CXN_WATCH_INTERVAL").ok().and_then(|s| s.parse().ok());
             Some(env_val.unwrap_or(config.interval))
         }
         Some(n) => Some(n), // --watch N, use explicit value
@@ -204,7 +203,9 @@ async fn cmd_check_compact(config: &Config, sequential: bool) -> Result<bool> {
     // Header
     table.set_header(vec![
         Cell::new("NAME").fg(Color::DarkGrey),
-        Cell::new("PING").fg(Color::DarkGrey).set_alignment(CellAlignment::Right),
+        Cell::new("PING")
+            .fg(Color::DarkGrey)
+            .set_alignment(CellAlignment::Right),
         Cell::new("DNS").fg(Color::DarkGrey),
     ]);
 
@@ -330,6 +331,11 @@ async fn main() -> Result<()> {
             // Load configuration for check command
             let config = Config::load(cli.config.as_ref()).context("Failed to load configuration")?;
             run_check_with_watch(&config, sequential, watch).await?;
+        }
+        Some(Commands::Monitor(args)) => {
+            // Load configuration and run monitor TUI
+            let config = Config::load(cli.config.as_ref()).context("Failed to load configuration")?;
+            monitor::run_monitor(config, args).await?;
         }
         None => {
             // Default: run check command with parallel execution (no watch)

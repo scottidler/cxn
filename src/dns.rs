@@ -69,6 +69,21 @@ pub fn create_resolver() -> TokioAsyncResolver {
     TokioAsyncResolver::tokio(ResolverConfig::default(), ResolverOpts::default())
 }
 
+/// Resolve DNS for a hostname with timing information
+///
+/// Returns both the DNS result and the time taken to resolve.
+#[allow(dead_code)] // Used in monitor mode
+pub async fn resolve_dns_timed(
+    resolver: &TokioAsyncResolver,
+    name: &str,
+    hostname: &str,
+    include_ipv6: bool,
+) -> (DnsResult, std::time::Duration) {
+    let start = std::time::Instant::now();
+    let result = resolve_dns(resolver, name, hostname, include_ipv6).await;
+    (result, start.elapsed())
+}
+
 /// Resolve DNS for a hostname
 ///
 /// Performs A and optionally AAAA lookups for the given hostname.
