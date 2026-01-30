@@ -48,6 +48,7 @@ pub async fn run_monitor(config: Config, args: MonitorArgs) -> Result<()> {
         config.hosts(),
         Duration::from_secs(interval),
         Duration::from_millis(config.timeout),
+        config.dns_recheck,
         result_tx,
         cancel_token.clone(),
     );

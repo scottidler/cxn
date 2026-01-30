@@ -154,6 +154,7 @@ impl HostState {
     }
 
     /// Get DNS latency as a formatted string
+    #[allow(dead_code)]
     pub fn dns_display(&self) -> String {
         if !self.dns_enabled {
             return "-".to_string();
@@ -171,14 +172,25 @@ impl HostState {
         }
     }
 
-    /// Get sparkline data (ping latencies, with failures as max value)
+    /// Get sparkline data (latencies, with failures as max value)
+    /// Prefers ping RTT, falls back to DNS latency for DNS-only hosts
     pub fn sparkline_data(&self) -> Vec<u64> {
+        // Helper to get latency from a sample (ping preferred, then DNS)
+        let get_latency = |s: &Sample| -> Option<u64> {
+            if let Some(ref ping) = s.ping_result {
+                return ping.rtt_ms;
+            }
+            if let Some(ref dns) = s.dns_result {
+                return dns.latency_ms;
+            }
+            None
+        };
+
         // Find max latency for scaling failures
         let max_latency = self
             .history
             .iter()
-            .filter_map(|s| s.ping_result.as_ref())
-            .filter_map(|p| p.rtt_ms)
+            .filter_map(get_latency)
             .max()
             .unwrap_or(100);
 
@@ -191,8 +203,30 @@ impl HostState {
                 if !s.is_success() {
                     failure_value
                 } else {
-                    s.ping_result.as_ref().and_then(|p| p.rtt_ms).unwrap_or(1)
+                    get_latency(s).unwrap_or(1)
                 }
+            })
+            .collect()
+    }
+
+    /// Get latency values as Option<u64> (None for failures)
+    /// Prefers ping RTT, falls back to DNS latency for DNS-only hosts
+    pub fn latency_values(&self) -> Vec<Option<u64>> {
+        self.history
+            .iter()
+            .map(|s| {
+                if !s.is_success() {
+                    return None; // Failure
+                }
+                // Prefer ping RTT if available
+                if let Some(ref ping) = s.ping_result {
+                    return ping.rtt_ms;
+                }
+                // Fall back to DNS latency for DNS-only hosts
+                if let Some(ref dns) = s.dns_result {
+                    return dns.latency_ms;
+                }
+                None
             })
             .collect()
     }
@@ -281,6 +315,30 @@ impl Default for GlobalStats {
     }
 }
 
+/// Which view/tab is currently active
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ViewMode {
+    #[default]
+    Graph,
+    Latency,
+}
+
+impl ViewMode {
+    pub fn toggle(&mut self) {
+        *self = match self {
+            ViewMode::Graph => ViewMode::Latency,
+            ViewMode::Latency => ViewMode::Graph,
+        };
+    }
+
+    pub fn title(&self) -> &'static str {
+        match self {
+            ViewMode::Graph => "Graph",
+            ViewMode::Latency => "Latency",
+        }
+    }
+}
+
 /// Main application state
 pub struct App {
     pub hosts: Vec<HostState>,
@@ -289,6 +347,7 @@ pub struct App {
     pub selected_host: usize,
     pub should_quit: bool,
     pub interval: Duration,
+    pub view_mode: ViewMode,
 }
 
 impl App {
@@ -310,6 +369,7 @@ impl App {
             selected_host: 0,
             should_quit: false,
             interval: Duration::from_secs(config.interval),
+            view_mode: ViewMode::default(),
         }
     }
 
@@ -392,6 +452,9 @@ impl App {
             KeyCode::Char('c') => {
                 // Clear error log
                 self.error_log.clear();
+            }
+            KeyCode::Tab => {
+                self.view_mode.toggle();
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 if self.selected_host > 0 {

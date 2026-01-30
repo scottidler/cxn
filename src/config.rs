@@ -16,6 +16,8 @@ pub struct Config {
     pub interval: u64,
     /// Number of samples to keep per host for sparklines in monitor mode
     pub history: usize,
+    /// Number of ping checks before re-resolving DNS (0 = every time)
+    pub dns_recheck: u32,
     /// Map of host name to host configuration
     hosts: IndexMap<String, HostEntry>,
 }
@@ -25,8 +27,9 @@ impl Default for Config {
         Self {
             timeout: 1000,
             retries: 3,
-            interval: 5,
-            history: 60,
+            interval: 1, // Fast 1-second default for responsive monitoring
+            history: 120, // More history for better graphs
+            dns_recheck: 60, // Re-resolve DNS every 60 pings (or 60s at 1s interval)
             hosts: IndexMap::new(),
         }
     }
@@ -149,7 +152,9 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.timeout, 1000);
         assert_eq!(config.retries, 3);
-        assert_eq!(config.interval, 5);
+        assert_eq!(config.interval, 1);
+        assert_eq!(config.history, 120);
+        assert_eq!(config.dns_recheck, 60);
         assert!(config.hosts().is_empty());
     }
 
