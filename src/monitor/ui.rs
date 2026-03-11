@@ -104,10 +104,7 @@ fn render_host_table(frame: &mut Frame, app: &App, area: Rect) {
     ];
 
     // Title shows active tab with indicator
-    let title = format!(
-        " CXN Network Monitor  [{}]  (Tab to switch) ",
-        app.view_mode.title()
-    );
+    let title = format!(" CXN Network Monitor  [{}]  (Tab to switch) ", app.view_mode.title());
 
     let table = Table::new(rows, widths)
         .header(header)
@@ -195,7 +192,7 @@ fn render_braille_graph(host: &HostState, width: usize) -> String {
                 2 // Middle height if all same
             } else {
                 let normalized = ((v - min) as f64 / (max - min) as f64 * 4.0).round() as u8;
-                normalized.min(4).max(1) // At least 1 dot if there's data
+                normalized.clamp(1, 4) // At least 1 dot if there's data
             }
         })
         .collect();
@@ -348,13 +345,13 @@ mod tests {
     fn test_braille_char_full() {
         let c = braille_char(4, 4);
         // Should have all bottom-up dots filled
-        assert!(c >= '\u{2800}' && c <= '\u{28FF}');
+        assert!(('\u{2800}'..='\u{28FF}').contains(&c));
     }
 
     #[test]
     fn test_braille_char_half() {
         let c = braille_char(2, 2);
-        assert!(c >= '\u{2800}' && c <= '\u{28FF}');
+        assert!(('\u{2800}'..='\u{28FF}').contains(&c));
     }
 
     #[test]

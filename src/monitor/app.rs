@@ -187,25 +187,18 @@ impl HostState {
         };
 
         // Find max latency for scaling failures
-        let max_latency = self
-            .history
-            .iter()
-            .filter_map(get_latency)
-            .max()
-            .unwrap_or(100);
+        let max_latency = self.history.iter().filter_map(get_latency).max().unwrap_or(100);
 
         // Use a value higher than max for failures to make them stand out
         let failure_value = max_latency.saturating_mul(2).max(100);
 
         self.history
             .iter()
-            .map(|s| {
-                if !s.is_success() {
-                    failure_value
-                } else {
-                    get_latency(s).unwrap_or(1)
-                }
-            })
+            .map(
+                |s| {
+                    if !s.is_success() { failure_value } else { get_latency(s).unwrap_or(1) }
+                },
+            )
             .collect()
     }
 

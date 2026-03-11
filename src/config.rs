@@ -27,8 +27,8 @@ impl Default for Config {
         Self {
             timeout: 1000,
             retries: 3,
-            interval: 1, // Fast 1-second default for responsive monitoring
-            history: 120, // More history for better graphs
+            interval: 1,     // Fast 1-second default for responsive monitoring
+            history: 120,    // More history for better graphs
             dns_recheck: 60, // Re-resolve DNS every 60 pings (or 60s at 1s interval)
             hosts: IndexMap::new(),
         }

@@ -37,7 +37,17 @@ pub fn spawn_check_tasks(
         let cancel = cancel.clone();
 
         let handle = tokio::spawn(async move {
-            check_host_loop(host, resolver, client, interval, timeout, dns_recheck, tx, cancel).await;
+            check_host_loop(CheckHostParams {
+                host,
+                resolver,
+                client,
+                interval,
+                timeout,
+                dns_recheck,
+                result_tx: tx,
+                cancel,
+            })
+            .await;
         });
 
         handles.push(handle);
@@ -46,9 +56,7 @@ pub fn spawn_check_tasks(
     handles
 }
 
-/// Continuous check loop for a single host
-/// Uses DNS caching for faster ping-only iterations
-async fn check_host_loop(
+struct CheckHostParams {
     host: HostConfig,
     resolver: Arc<hickory_resolver::TokioAsyncResolver>,
     client: Arc<surge_ping::Client>,
@@ -57,7 +65,21 @@ async fn check_host_loop(
     dns_recheck: u32,
     result_tx: mpsc::UnboundedSender<(String, Sample)>,
     cancel: CancellationToken,
-) {
+}
+
+/// Continuous check loop for a single host
+/// Uses DNS caching for faster ping-only iterations
+async fn check_host_loop(params: CheckHostParams) {
+    let CheckHostParams {
+        host,
+        resolver,
+        client,
+        interval,
+        timeout,
+        dns_recheck,
+        result_tx,
+        cancel,
+    } = params;
     // Cache for resolved IP address
     let mut cached_ip: Option<IpAddr> = None;
     let mut checks_since_dns: u32 = 0;
@@ -175,9 +197,12 @@ async fn run_single_check_with_cache(
         }
     }
 
-    (Sample {
-        timestamp,
-        dns_result,
-        ping_result,
-    }, new_ip)
+    (
+        Sample {
+            timestamp,
+            dns_result,
+            ping_result,
+        },
+        new_ip,
+    )
 }
