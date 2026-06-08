@@ -54,6 +54,14 @@ impl Tui {
         Ok(())
     }
 
+    /// Clear the terminal buffer, forcing a full redraw on next draw()
+    ///
+    /// Call this on terminal resize to prevent artifacts from the old layout.
+    pub fn clear(&mut self) -> Result<()> {
+        self.terminal.clear().context("Failed to clear terminal")?;
+        Ok(())
+    }
+
     /// Exit the TUI and restore terminal state
     pub fn exit(&mut self) -> Result<()> {
         disable_raw_mode().context("Failed to disable raw mode")?;

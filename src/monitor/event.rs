@@ -6,11 +6,9 @@ use tokio::time::interval;
 
 /// Events that can occur in the TUI
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub enum Event {
-    /// A key was pressed
     Key(KeyEvent),
-    /// Time to run checks (tick interval)
+    /// Periodic tick for re-rendering and data refresh
     Tick,
     /// Terminal was resized
     Resize(u16, u16),
@@ -29,9 +27,8 @@ pub struct EventHandler {
 impl EventHandler {
     /// Create a new event handler
     ///
-    /// * `render_rate` - How often to check for input events
-    /// * `tick_rate` - How often to send tick events (for network checks)
-    pub fn new(render_rate: Duration, tick_rate: Duration) -> Self {
+    /// * `tick_rate` - How often to send tick events (drives periodic re-rendering)
+    pub fn new(tick_rate: Duration) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
 
         // Spawn event loop task
@@ -39,7 +36,6 @@ impl EventHandler {
         tokio::spawn(async move {
             let mut reader = EventStream::new();
             let mut tick_interval = interval(tick_rate);
-            let mut render_interval = interval(render_rate);
 
             loop {
                 tokio::select! {
@@ -61,13 +57,9 @@ impl EventHandler {
                             _ => {}
                         }
                     }
-                    // Handle tick interval
+                    // Tick drives periodic re-renders
                     _ = tick_interval.tick() => {
                         let _ = tx_clone.send(Event::Tick);
-                    }
-                    // Handle render interval (used to keep event loop responsive)
-                    _ = render_interval.tick() => {
-                        // Just keeps the loop responsive for rendering
                     }
                 }
             }

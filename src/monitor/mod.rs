@@ -39,8 +39,8 @@ pub async fn run_monitor(config: Config, args: MonitorArgs) -> Result<()> {
     // Create cancellation token for graceful shutdown
     let cancel_token = CancellationToken::new();
 
-    // Spawn event handler
-    let event_handler = EventHandler::new(Duration::from_millis(100), Duration::from_secs(interval));
+    // Spawn event handler — tick every 250ms for smooth rendering
+    let event_handler = EventHandler::new(Duration::from_millis(250));
     let mut event_rx = event_handler.subscribe();
 
     // Spawn network check tasks
@@ -66,10 +66,11 @@ pub async fn run_monitor(config: Config, args: MonitorArgs) -> Result<()> {
                         app.handle_key(key);
                     }
                     Event::Tick => {
-                        // Tick events are handled by check tasks
+                        // Tick drives periodic re-renders; the draw at loop top handles it.
                     }
                     Event::Resize(_, _) => {
-                        // Resize is handled automatically by ratatui
+                        // Clear buffer so ratatui recomputes layout for new dimensions
+                        tui.clear()?;
                     }
                     Event::Quit => {
                         break;
