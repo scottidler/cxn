@@ -136,7 +136,7 @@ impl Config {
     fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = fs::read_to_string(&path).context("Failed to read config file")?;
 
-        let config: Self = serde_yaml::from_str(&content).context("Failed to parse config file")?;
+        let config: Self = serde_yaml_ng::from_str(&content).context("Failed to parse config file")?;
 
         log::info!("Loaded config from: {}", path.as_ref().display());
         Ok(config)
@@ -222,7 +222,7 @@ hosts:
     ping: true
     dns: true
 "#;
-        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let config: Config = serde_yaml_ng::from_str(yaml).unwrap();
         assert_eq!(config.timeout, 2000);
         assert_eq!(config.retries, 5);
         let hosts = config.hosts();
