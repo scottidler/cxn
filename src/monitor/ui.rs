@@ -1,10 +1,10 @@
-use crate::monitor::app::{App, HostState, ViewMode};
+use crate::monitor::app::{App, FocusPanel, HostState, ViewMode};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -20,6 +20,13 @@ pub fn render(frame: &mut Frame, app: &App) {
     render_host_table(frame, app, chunks[0]);
     render_error_log(frame, app, chunks[1]);
     render_status_bar(frame, app, chunks[2]);
+
+    // Detail popup overlay (rendered last so it's on top)
+    if let Some(host_idx) = app.detail_host {
+        if let Some(host) = app.hosts.get(host_idx) {
+            render_host_detail_popup(frame, app, host);
+        }
+    }
 }
 
 /// Render the host table with tab-switchable view: Graph (default) or Latency
@@ -37,6 +44,12 @@ fn render_host_table(frame: &mut Frame, app: &App, area: Rect) {
         Cell::from(data_header).style(Style::default().fg(Color::DarkGray)),
     ])
     .height(1);
+
+    // Dynamic host name column width based on longest hostname
+    let min_host_width: u16 = 8;
+    let max_host_width: u16 = 30;
+    let longest_name = app.hosts.iter().map(|h| h.name.len()).max().unwrap_or(4);
+    let host_col_width = ((longest_name as u16) + 2).clamp(min_host_width, max_host_width);
 
     let rows: Vec<Row> = app
         .hosts
@@ -72,10 +85,11 @@ fn render_host_table(frame: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(Color::Green)
             };
 
-            // Truncate host name if needed
-            let max_name_len = 12;
-            let display_name = if host.name.len() > max_name_len {
-                format!("{}...", &host.name[..max_name_len - 3])
+            // Truncate host name if needed (dynamic based on column width)
+            let max_name_len = host_col_width as usize;
+            let display_name = if host.name.len() > max_name_len && max_name_len > 1 {
+                let truncated: String = host.name.chars().take(max_name_len - 1).collect();
+                format!("{truncated}\u{2026}")
             } else {
                 host.name.clone()
             };
@@ -97,10 +111,10 @@ fn render_host_table(frame: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     let widths = [
-        Constraint::Length(14), // Host name
-        Constraint::Length(6),  // Status
-        Constraint::Length(8),  // Ping
-        Constraint::Min(40),    // Data column (graph or latency)
+        Constraint::Length(host_col_width), // Host name (dynamic)
+        Constraint::Length(6),              // Status
+        Constraint::Length(8),              // Ping
+        Constraint::Min(40),                // Data column (graph or latency)
     ];
 
     // Title shows active tab with indicator
@@ -139,7 +153,7 @@ fn render_latency_values(host: &HostState, count: usize) -> String {
                     format!("{:3}", ms.min(&999))
                 }
             }
-            None => pad_to_width("×", 2), // Unicode-aware padding
+            None => pad_to_width("\u{00d7}", 2), // Unicode-aware padding
         })
         .collect::<Vec<_>>()
         .join(" ")
@@ -264,13 +278,17 @@ fn braille_char(left: u8, right: u8) -> char {
     char::from_u32(code_point).unwrap_or(' ')
 }
 
-/// Render the error log pane
+/// Render the error log pane with scrolling support
 fn render_error_log(frame: &mut Frame, app: &App, area: Rect) {
+    let inner_height = area.height.saturating_sub(2) as usize; // border top + bottom
+    let total = app.error_log.len();
+
     let visible_errors: Vec<Line> = app
         .error_log
         .iter()
         .rev()
-        .take(6)
+        .skip(app.error_scroll_offset)
+        .take(inner_height)
         .map(|e| {
             Line::from(vec![
                 Span::styled(
@@ -292,15 +310,28 @@ fn render_error_log(frame: &mut Frame, app: &App, area: Rect) {
         visible_errors
     };
 
+    let scroll_indicator = if total > inner_height {
+        let pos = app.error_scroll_offset + 1;
+        let end = (app.error_scroll_offset + inner_height).min(total);
+        format!(" Recent Errors ({}) [{}-{}/{}] ", total, pos, end, total)
+    } else {
+        format!(" Recent Errors ({}) ", total)
+    };
+
+    let is_focused = app.focus == FocusPanel::ErrorLog;
+    let border_color = if is_focused {
+        Color::Yellow
+    } else if app.error_log.is_empty() {
+        Color::DarkGray
+    } else {
+        Color::Red
+    };
+
     let error_block = Paragraph::new(error_text).block(
         Block::default()
-            .title(format!(" Recent Errors ({}) ", app.error_log.len()))
+            .title(scroll_indicator)
             .borders(Borders::ALL)
-            .border_style(if app.error_log.is_empty() {
-                Style::default().fg(Color::DarkGray)
-            } else {
-                Style::default().fg(Color::Red)
-            }),
+            .border_style(Style::default().fg(border_color)),
     );
 
     frame.render_widget(error_block, area);
@@ -322,13 +353,163 @@ fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     let stats = Paragraph::new(stats_text).style(Style::default().fg(Color::Cyan));
 
     // Right side: help
-    let help_text = " Tab view | ↑↓ scroll | c clear | q quit ";
+    let help_text = " Tab view | \u{2191}\u{2193} nav | e errors | Enter detail | c clear | q quit ";
     let help = Paragraph::new(help_text)
         .style(Style::default().fg(Color::DarkGray))
         .alignment(ratatui::layout::Alignment::Right);
 
     frame.render_widget(stats, chunks[0]);
     frame.render_widget(help, chunks[1]);
+}
+
+/// Centered popup area helper
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::vertical([
+        Constraint::Percentage((100 - percent_y) / 2),
+        Constraint::Percentage(percent_y),
+        Constraint::Percentage((100 - percent_y) / 2),
+    ])
+    .split(r);
+
+    Layout::horizontal([
+        Constraint::Percentage((100 - percent_x) / 2),
+        Constraint::Percentage(percent_x),
+        Constraint::Percentage((100 - percent_x) / 2),
+    ])
+    .split(popup_layout[1])[1]
+}
+
+/// Render the host detail popup overlay
+fn render_host_detail_popup(frame: &mut Frame, app: &App, host: &HostState) {
+    let area = centered_rect(70, 70, frame.area());
+
+    // Clear the area behind the popup
+    frame.render_widget(Clear, area);
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Header: host name and address
+    lines.push(Line::from(vec![
+        Span::styled("Host: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(&host.name),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(
+            "Address: ",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(&host.address),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled(
+            "Status: ",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            host.status_symbol(),
+            if host.last_sample.as_ref().is_some_and(|s| s.is_success()) {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default().fg(Color::Red)
+            },
+        ),
+    ]));
+
+    // Resolved IPs from last DNS result
+    if let Some(ref sample) = host.last_sample {
+        if let Some(ref dns) = sample.dns_result {
+            let ips: Vec<String> = dns.addresses.iter().map(|ip| ip.to_string()).collect();
+            lines.push(Line::from(vec![
+                Span::styled("IPs: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw(if ips.is_empty() { "-".to_string() } else { ips.join(", ") }),
+            ]));
+        }
+    }
+
+    lines.push(Line::from(vec![
+        Span::styled(
+            "Checks: ",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(format!("{}", host.success_count), Style::default().fg(Color::Green)),
+        Span::raw(" ok / "),
+        Span::styled(format!("{}", host.error_count), Style::default().fg(Color::Red)),
+        Span::raw(" err"),
+    ]));
+
+    lines.push(Line::from(""));
+
+    // Latency history
+    lines.push(Line::from(Span::styled(
+        "\u{2500}\u{2500} Latency History \u{2500}\u{2500}",
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+    )));
+
+    let latencies = host.latency_values();
+    if latencies.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  No data yet",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        // Show latencies in rows of ~20 values
+        let chunk_size = 20;
+        for chunk in latencies.chunks(chunk_size) {
+            let vals: Vec<String> = chunk
+                .iter()
+                .map(|v| match v {
+                    Some(ms) => format!("{:>4}", ms),
+                    None => "   \u{00d7}".to_string(),
+                })
+                .collect();
+            lines.push(Line::from(Span::raw(format!("  {}", vals.join(" ")))));
+        }
+    }
+
+    lines.push(Line::from(""));
+
+    // Recent errors for this host
+    lines.push(Line::from(Span::styled(
+        "\u{2500}\u{2500} Recent Errors \u{2500}\u{2500}",
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+    )));
+
+    let host_errors: Vec<&crate::monitor::app::ErrorEntry> = app
+        .error_log
+        .iter()
+        .rev()
+        .filter(|e| e.host == host.name)
+        .take(10)
+        .collect();
+
+    if host_errors.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  No errors",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        for e in host_errors {
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("  {} ", e.timestamp.format("%H:%M:%S")),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(&e.message, Style::default().fg(Color::Red)),
+            ]));
+        }
+    }
+
+    let popup = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .title(format!(" {} Detail ", host.name))
+                .title_bottom(" Esc/q to close ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan)),
+        )
+        .wrap(Wrap { trim: false });
+
+    frame.render_widget(popup, area);
 }
 
 #[cfg(test)]
@@ -356,7 +537,7 @@ mod tests {
 
     #[test]
     fn test_pad_to_width() {
-        assert_eq!(pad_to_width("×", 2), " ×");
+        assert_eq!(pad_to_width("\u{00d7}", 2), " \u{00d7}");
         assert_eq!(pad_to_width("ab", 2), "ab");
         assert_eq!(pad_to_width("a", 3), "  a");
     }

@@ -38,13 +38,11 @@ impl<T> RingBuffer<T> {
     }
 
     /// Get the number of items in the buffer
-    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
     /// Check if the buffer is empty
-    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
@@ -52,7 +50,6 @@ impl<T> RingBuffer<T> {
 
 /// Result of a DNS check
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct DnsCheckResult {
     pub success: bool,
     pub latency_ms: Option<u64>,
@@ -70,7 +67,6 @@ pub struct PingCheckResult {
 
 /// A single sample from a check cycle
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct Sample {
     pub timestamp: Instant,
     pub dns_result: Option<DnsCheckResult>,
@@ -88,7 +84,6 @@ impl Sample {
 
 /// State for a single host being monitored
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct HostState {
     pub name: String,
     pub address: String,
@@ -154,7 +149,6 @@ impl HostState {
     }
 
     /// Get DNS latency as a formatted string
-    #[allow(dead_code)]
     pub fn dns_display(&self) -> String {
         if !self.dns_enabled {
             return "-".to_string();
@@ -227,7 +221,6 @@ impl HostState {
 
 /// Type of error that occurred
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum ErrorType {
     DnsTimeout,
     DnsError,
@@ -236,7 +229,6 @@ pub enum ErrorType {
 }
 
 impl ErrorType {
-    #[allow(dead_code)]
     pub fn as_str(&self) -> &'static str {
         match self {
             ErrorType::DnsTimeout => "DNS timeout",
@@ -249,7 +241,6 @@ impl ErrorType {
 
 /// An entry in the error log
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct ErrorEntry {
     pub timestamp: DateTime<Local>,
     pub host: String,
@@ -259,7 +250,6 @@ pub struct ErrorEntry {
 
 impl ErrorEntry {
     /// Format the error entry for display
-    #[allow(dead_code)]
     pub fn format(&self) -> String {
         format!(
             "{} {:12} {}",
@@ -308,6 +298,14 @@ impl Default for GlobalStats {
     }
 }
 
+/// Which panel has keyboard focus
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FocusPanel {
+    #[default]
+    Hosts,
+    ErrorLog,
+}
+
 /// Which view/tab is currently active
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ViewMode {
@@ -341,6 +339,9 @@ pub struct App {
     pub should_quit: bool,
     pub interval: Duration,
     pub view_mode: ViewMode,
+    pub focus: FocusPanel,
+    pub error_scroll_offset: usize,
+    pub detail_host: Option<usize>,
 }
 
 impl App {
@@ -363,6 +364,9 @@ impl App {
             should_quit: false,
             interval: Duration::from_secs(config.interval),
             view_mode: ViewMode::default(),
+            focus: FocusPanel::default(),
+            error_scroll_offset: 0,
+            detail_host: None,
         }
     }
 
@@ -435,6 +439,17 @@ impl App {
 
     /// Handle a key event
     pub fn handle_key(&mut self, key: KeyEvent) {
+        // Detail popup intercepts keys first
+        if self.detail_host.is_some() {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('q') => {
+                    self.detail_host = None;
+                }
+                _ => {}
+            }
+            return;
+        }
+
         match key.code {
             KeyCode::Char('q') => {
                 self.should_quit = true;
@@ -443,22 +458,50 @@ impl App {
                 self.should_quit = true;
             }
             KeyCode::Char('c') => {
-                // Clear error log
                 self.error_log.clear();
+                self.error_scroll_offset = 0;
             }
             KeyCode::Tab => {
                 self.view_mode.toggle();
             }
-            KeyCode::Up | KeyCode::Char('k') => {
-                if self.selected_host > 0 {
-                    self.selected_host -= 1;
+            KeyCode::Char('e') => {
+                self.focus = match self.focus {
+                    FocusPanel::Hosts => FocusPanel::ErrorLog,
+                    FocusPanel::ErrorLog => FocusPanel::Hosts,
+                };
+            }
+            KeyCode::Esc => {
+                self.focus = FocusPanel::Hosts;
+            }
+            KeyCode::Enter => {
+                if self.focus == FocusPanel::Hosts && !self.hosts.is_empty() {
+                    self.detail_host = Some(self.selected_host);
                 }
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.selected_host + 1 < self.hosts.len() {
-                    self.selected_host += 1;
+            KeyCode::Up | KeyCode::Char('k') => match self.focus {
+                FocusPanel::Hosts => {
+                    if self.selected_host > 0 {
+                        self.selected_host -= 1;
+                    }
                 }
-            }
+                FocusPanel::ErrorLog => {
+                    if self.error_scroll_offset + 1 < self.error_log.len() {
+                        self.error_scroll_offset += 1;
+                    }
+                }
+            },
+            KeyCode::Down | KeyCode::Char('j') => match self.focus {
+                FocusPanel::Hosts => {
+                    if self.selected_host + 1 < self.hosts.len() {
+                        self.selected_host += 1;
+                    }
+                }
+                FocusPanel::ErrorLog => {
+                    if self.error_scroll_offset > 0 {
+                        self.error_scroll_offset -= 1;
+                    }
+                }
+            },
             _ => {}
         }
     }
