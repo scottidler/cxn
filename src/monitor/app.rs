@@ -454,10 +454,8 @@ impl App {
                     self.selected_host -= 1;
                 }
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if self.selected_host + 1 < self.hosts.len() {
-                    self.selected_host += 1;
-                }
+            KeyCode::Down | KeyCode::Char('j') if self.selected_host + 1 < self.hosts.len() => {
+                self.selected_host += 1;
             }
             _ => {}
         }
