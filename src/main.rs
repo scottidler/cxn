@@ -37,7 +37,7 @@ fn resolve_watch_interval(cli_value: Option<u64>, config: &Config) -> Option<u64
 
 fn setup_logging() -> Result<()> {
     // Create log directory
-    let log_dir = dirs::data_local_dir()
+    let log_dir = config::xdg_data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("cxn")
         .join("logs");
