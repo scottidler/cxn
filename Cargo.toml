@@ -31,3 +31,4 @@ tokio-util = "0.7"
 unicode-width = "0.2.0"
 
 [build-dependencies]
+build-version = { git = "https://github.com/tatari-tv/build-version-rs", tag = "v0.1.0", version = "0.1.0" }

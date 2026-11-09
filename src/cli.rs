@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[command(
     name = "cxn",
     about = "A CLI tool for quick ping and DNS connectivity checks",
-    version = env!("GIT_DESCRIBE"),
+    version = env!("BUILD_VERSION"),
     after_help = "Logs are written to: ~/.local/share/cxn/logs/cxn.log"
 )]
 pub struct Cli {
